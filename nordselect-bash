@@ -1,0 +1,269 @@
+#!/usr/bin/env bash
+
+# Join elements of an array into a string using a separator.
+# Taken from https://stackoverflow.com/questions/1527049/how-can-i-join-elements-of-an-array-in-bash
+function join_by { local d=$1; shift; local f=${1:-}; shift; printf %s "$f" "${@/#/$d}"; }
+
+function error { local fmt=$1; shift; printf "Error: $fmt" "$@" 1>&2; exit 1; }
+
+set -o errexit
+set -o pipefail
+set -o nounset
+# set -o xtrace
+curl="curl --silent"
+jq="jq --raw-output"
+
+apiurl=https://api.nordvpn.com/v1
+declare filter_country=
+declare -a filter_technologies=()
+declare -a filter_groups=()
+
+# Try to find cache dir
+if [[ -v XDG_CACHE_HOME ]]; then
+    cachedir="${XDG_CACHE_HOME}"
+elif [[ -v HOME ]]; then
+    cachedir="${HOME}/.cache"
+else
+    cachedir=/var/cache
+fi
+
+cachedir="${cachedir}/nordselect-bash"
+if not mkdir -p "${cachedir}"; then
+    cachedir=/tmp/nordselect-bash
+    mkdir -p "${cachedir}" || cachedir=
+fi
+
+function get_cache {
+    local fname="$1"
+    local suffix="$2"
+    [[ -n "$cachedir" ]] && local cachefile="$cachedir/$fname"
+    if [[ -v cachefile && -f "$cachefile" ]]; then
+        cat "$cachefile"
+        return 0
+    fi
+    if [[ -v cachefile ]]; then
+        $curl "$apiurl/$suffix" | tee "$cachefile"
+    else
+        $curl "$apiurl/$suffix"
+    fi
+}
+
+function load_countries {
+    declare -gA countries_short countries_long
+    while IFS='|' read id long short; do
+        countries_short[${short^^}]=$id
+        countries_long[${long^^}]=$id
+    done < <(get_cache countries countries | $jq '.[] | [.id, .name, .code] | join("|")')
+}
+
+function print_countries {
+    get_cache countries countries | $jq '.[] | "\(.name) (\(.code))"'
+}
+
+function find_country {
+    local country=${1^^}
+    [[ -v countries_short[$country] ]] && echo "${countries_short[$country]}" && return 0
+    [[ -v countries_long[$country] ]] && echo "${countries_long[$country]}"
+}
+
+# Shorter aliases for the names of some of the technologies.
+declare -A tech_aliases=(
+    [udp]=openvpn_udp
+    [tcp]=openvpn_tcp
+    [ipsec]=ikev2
+    [xor_udp]=openvpn_xor_udp
+    [xor_tcp]=openvpn_xor_tcp
+    [cybersec]=proxy_cybersec
+    [ssl_cybersec]=proxy_ssl_cybersec
+    [ipsec_v6]=ikev2_v6
+    [udp_v6]=openvpn_udp_v6
+    [tcp_v6]=openvpn_tcp_v6
+    [wg_udp]=wireguard_udp
+    [udp_tls]=openvpn_udp_tls_crypt
+    [tcp_tls]=openvpn_tcp_tls_crypt
+    [dedicated_udp]=openvpn_dedicated_udp
+    [dedicated_tcp]=openvpn_dedicated_tcp
+)
+
+function load_technologies {
+    declare -gA technologies
+    while read tech; do
+        technologies[$tech]= # no value assigned: works like a set
+    done < <(get_cache technologies technologies | $jq '.[] | .identifier')
+}
+
+function print_technologies {
+    echo "Technologies:"
+    get_cache technologies technologies | $jq '.[] | [.identifier, .name] | join(": ")'
+    echo
+    echo "Aliases:"
+    for a in "${!tech_aliases[@]}"; do
+        echo "$a: ${tech_aliases[$a]}"
+    done
+}
+
+function find_technology {
+    local tech=$1
+    [[ -v tech_aliases[$tech] ]] && tech=${tech_aliases[$tech]}
+    [[ -v technologies[$tech] ]] && echo "$tech"
+}
+
+function load_groups {
+    declare -gA groups
+    while read group; do
+        groups[$group]=
+    done < <(get_cache groups servers/groups | $jq '.[] | .identifier')
+}
+
+function print_groups {
+    get_cache groups servers/groups | $jq '.[] | "\(.identifier): \(.title)"'
+}
+
+function find_group {
+    local group=$1
+    [[ -v groups[legacy_$group] ]] && echo "legacy_$group" && return 0
+    [[ -v groups[$group] ]] && echo "$group"
+}
+
+function add_filter {
+    local filt=$1
+    local t
+    if t=$(find_country "$filt"); then
+        [[ -n "$filter_country" ]] && error "only one country can be specified"
+        filter_country=$t
+    elif t=$(find_technology "$filt"); then
+        filter_technologies+=("$t")
+    elif t=$(find_group "$filt"); then
+        filter_groups+=("$t")
+    else
+        error "unknown filter: $filt"
+    fi
+}
+
+function clean_cache {
+    [[ -n "$cachedir" ]] && for f in $cachedir/{groups,technologies,countries}; do
+        rm -f $f
+    done
+}
+
+opts="hgtcdin:"
+
+function usage {
+    cat <<EOF
+Select the ideal NordVPN server
+
+Usage: $1 [-$opts] [FILTER ...]
+
+A FILTER is a server group identifier (e.g. p2p), a technology identifier/alias
+(e.g. xor_udp), or a country name/code (e.g. "united states"/"us").
+For server group identifiers that begin with "legacy_", the "legacy_" prefix
+may be omitted.
+Note: only 1 country may be specified.
+
+Flags:
+  -h        Print usage information
+  -g        Print server groups
+  -t        Print technologies and their aliases
+  -c        Print country names and codes
+  -d        Delete cached information about countries, technologies and server groups
+
+Options:
+  -i        Print the server's IP address instead of its name
+  -n <num>  Find <num> servers with the lowest load instead of just one.
+            This does not guarantee that <num> servers will be printed.
+EOF
+    exit 0
+}
+
+print_ip=0
+num_servers=1
+
+while getopts $opts opt; do
+    case $opt in
+        h )
+            usage "$0"
+            ;;
+        g )
+            print_groups
+            exit 0
+            ;;
+        t )
+            print_technologies
+            exit 0
+            ;;
+        c )
+            print_countries
+            exit 0
+            ;;
+        d )
+            clean_cache
+            exit 0
+            ;;
+        i )
+            print_ip=1
+            ;;
+        n )
+            if [[ "$OPTARG" -gt 0 ]]; then
+                num_servers=$OPTARG
+            else
+                error "\"$OPTARG\" is not a positive integer"
+            fi
+            ;;
+        \? )
+            error "invalid option"
+            ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+load_countries && load_groups && load_technologies
+
+while [[ $# > 0 ]]; do
+    add_filter "$1"
+    shift
+done
+
+if [[ $print_ip == 0 ]]; then
+    last_filter='.hostname | rtrimstr(".nordvpn.com")'
+else
+    last_filter='.station'
+fi
+
+if [[ "$num_servers" -eq 1 ]]; then
+    find_filter='min_by(.load)'
+else
+    find_filter="sort_by(.load) | .[:$num_servers] | .[]"
+fi
+
+# If no country was given, use the recommendations api to give us nearby servers
+if [[ -n "$filter_country" ]]; then
+    url="$apiurl/servers?filters\[country_id\]=$filter_country"
+else
+    url="$apiurl/servers/recommendations?"
+fi
+
+if [[ -v filter_technologies[0] ]]; then
+    url+="&filters\[servers_technologies\]\[identifier\]=${filter_technologies[0]}"
+fi
+
+if [[ -v filter_groups[0] ]]; then
+    url+="&filters\[servers_groups\]\[identifier\]=${filter_groups[0]}"
+fi
+
+tech_jqfilters=()
+for tech in "${filter_technologies[@]}"; do
+    tech_jqfilters+=("any(.identifier == \"$tech\")")
+done
+
+group_jqfilters=()
+for group in "${filter_groups[@]}"; do
+    group_jqfilters+=("any(.identifier == \"$group\")")
+done
+
+jqfilter="[.[] | \
+select(.technologies | [$(join_by "," "${tech_jqfilters[@]}")] | all) | \
+select(.groups | [$(join_by "," "${group_jqfilters[@]}")] | all)] | \
+$find_filter | $last_filter"
+
+$curl --silent "$url" | $jq "$jqfilter"
+
