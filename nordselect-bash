@@ -231,7 +231,7 @@ if [[ -n "$cachedir" ]]; then
 fi
 load_countries && load_groups && load_technologies
 
-while [[ $# > 0 ]]; do
+while [[ $# -gt 0 ]]; do
     add_filter "$1"
     shift
 done
