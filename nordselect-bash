@@ -273,7 +273,7 @@ for group in "${filter_groups[@]}"; do
     group_jqfilters+=("any(.identifier == \"$group\")")
 done
 
-jqfilter="[.[] | \
+jqfilter=". // [] | [.[] | \
 select(.technologies | [$(join_by "," "${tech_jqfilters[@]}")] | all) | \
 select(.groups | [$(join_by "," "${group_jqfilters[@]}")] | all)] | \
 $find_filter | $last_filter"
