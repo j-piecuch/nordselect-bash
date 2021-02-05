@@ -243,9 +243,9 @@ else
 fi
 
 if [[ "$num_servers" -eq 1 ]]; then
-    find_filter='min_by(.load)'
+    find_filter='[min_by(.load)] | if .[0] == null then [] else . end'
 else
-    find_filter="sort_by(.load) | .[:$num_servers] | .[]"
+    find_filter="sort_by(.load) | .[:$num_servers]"
 fi
 
 # If no country was given, use the recommendations api to give us nearby servers
