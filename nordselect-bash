@@ -222,6 +222,13 @@ while getopts $opts opt; do
 done
 shift $((OPTIND - 1))
 
+# Fetch in parallel
+if [[ -n "$cachedir" ]]; then
+    get_countries >/dev/null &
+    get_technologies >/dev/null &
+    get_groups >/dev/null &
+    wait
+fi
 load_countries && load_groups && load_technologies
 
 while [[ $# > 0 ]]; do
