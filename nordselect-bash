@@ -4,7 +4,7 @@
 # Taken from https://stackoverflow.com/questions/1527049/how-can-i-join-elements-of-an-array-in-bash
 function join_by { local d=$1; shift; local f=${1:-}; shift; printf %s "$f" "${@/#/$d}"; }
 
-function error { local fmt=$1; shift; printf "Error: $fmt" "$@" 1>&2; exit 1; }
+function error { local fmt=$1; shift; printf "Error: $fmt\n" "$@" 1>&2; exit 1; }
 
 set -o errexit
 set -o pipefail
