@@ -48,16 +48,18 @@ function get_cache {
     fi
 }
 
+function get_countries { get_cache countries countries; }
+
 function load_countries {
     declare -gA countries_short countries_long
     while IFS='|' read id long short; do
         countries_short[${short^^}]=$id
         countries_long[${long^^}]=$id
-    done < <(get_cache countries countries | $jq '.[] | [.id, .name, .code] | join("|")')
+    done < <(get_countries | $jq '.[] | [.id, .name, .code] | join("|")')
 }
 
 function print_countries {
-    get_cache countries countries | $jq '.[] | "\(.name) (\(.code))"'
+    get_countries | $jq '.[] | "\(.name) (\(.code))"'
 }
 
 function find_country {
@@ -85,16 +87,18 @@ declare -A tech_aliases=(
     [dedicated_tcp]=openvpn_dedicated_tcp
 )
 
+function get_technologies { get_cache technologies technologies; }
+
 function load_technologies {
     declare -gA technologies
     while read tech; do
         technologies[$tech]= # no value assigned: works like a set
-    done < <(get_cache technologies technologies | $jq '.[] | .identifier')
+    done < <(get_technologies | $jq '.[] | .identifier')
 }
 
 function print_technologies {
     echo "Technologies:"
-    get_cache technologies technologies | $jq '.[] | [.identifier, .name] | join(": ")'
+    get_technologies | $jq '.[] | [.identifier, .name] | join(": ")'
     echo
     echo "Aliases:"
     for a in "${!tech_aliases[@]}"; do
@@ -108,15 +112,17 @@ function find_technology {
     [[ -v technologies[$tech] ]] && echo "$tech"
 }
 
+function get_groups { get_cache groups servers/groups; }
+
 function load_groups {
     declare -gA groups
     while read group; do
         groups[$group]=
-    done < <(get_cache groups servers/groups | $jq '.[] | .identifier')
+    done < <(get_groups | $jq '.[] | .identifier')
 }
 
 function print_groups {
-    get_cache groups servers/groups | $jq '.[] | "\(.identifier): \(.title)"'
+    get_groups | $jq '.[] | "\(.identifier): \(.title)"'
 }
 
 function find_group {
