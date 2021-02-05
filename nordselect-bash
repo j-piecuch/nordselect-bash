@@ -276,7 +276,8 @@ done
 jqfilter=". // [] | [.[] | \
 select(.technologies | [$(join_by "," "${tech_jqfilters[@]}")] | all) | \
 select(.groups | [$(join_by "," "${group_jqfilters[@]}")] | all)] | \
-$find_filter | $last_filter"
+$find_filter | if length == 0 then halt_error(1) else .[] | $last_filter end"
 
-$curl --silent "$url" | $jq "$jqfilter"
-
+if ! $curl --silent "$url" | $jq --exit-status "$jqfilter" 2>/dev/null; then
+    error "no server found"
+fi
