@@ -28,7 +28,7 @@ else
 fi
 
 cachedir="${cachedir}/nordselect-bash"
-if not mkdir -p "${cachedir}"; then
+if ! mkdir -p "${cachedir}"; then
     cachedir=/tmp/nordselect-bash
     mkdir -p "${cachedir}" || cachedir=
 fi
